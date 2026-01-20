@@ -130,13 +130,28 @@ let new_mode_var_from_annots (m : Alloc.Const.Option.t) =
   Value.submode_exn mode (max |> Alloc.of_const |> alloc_as_value);
   mode
 
-let register_allocation () =
-  let m, _ =
-    Value.(newvar_below (of_const
+let register_module_allocation () =
+  let upper_bound =
+    Value.of_const
       ~hint_comonadic:Module_allocated_on_heap
-      { Const.max with areality = Global }))
+      { Value.Const.max with areality = Global }
   in
-  value_to_alloc_r2g m, m
+  fst (Value.newvar_below upper_bound)
+
+let register_closure_allocation (mode : Value.r option) : Alloc.lr * Value.lr =
+  let common_upper_bound =
+    Alloc.of_const
+      ~hint_comonadic:Module_allocated_on_heap
+      { Alloc.Const.max with areality = Global }
+  in
+  let upper_bound =
+    match mode with
+    | None -> common_upper_bound
+    | Some m -> Alloc.meet [common_upper_bound; value_to_alloc_r2g m]
+  in 
+  let alloc_mode, _ = Alloc.newvar_below upper_bound in
+  let closed_over_mode = alloc_as_value alloc_mode in
+  alloc_mode, closed_over_mode
 
 open Typedtree
 
@@ -191,12 +206,12 @@ on [mode], return a signature equivalent to [sg] but modalities based on
 let rebase_modalities ~loc ~env ~md_mode ~mode sg =
   List.map (function
     | Sig_value (id, vd, vis) ->
-        let mode = Mode.Modality.apply vd.val_modalities mode in
+        let mode = Mode.Modality.apply_left vd.val_modalities mode in
         let val_modalities = infer_modalities ~loc ~env ~md_mode ~mode in
         let vd = {vd with val_modalities} in
         Sig_value (id, vd, vis)
     | Sig_module (id, pres, md, rec_, vis) ->
-        let mode = Mode.Modality.apply md.md_modalities mode in
+        let mode = Mode.Modality.apply_left md.md_modalities mode in
         let md_modalities = infer_modalities ~loc ~env ~md_mode ~mode in
         let md = {md with md_modalities} in
         Sig_module (id, pres, md, rec_, vis)
@@ -2983,10 +2998,13 @@ and type_module_aux ~alias ~hold_locks sttn funct_body anchor env
       in
       md, shape
   | Pmod_functor(arg_opt, sbody) ->
-      let alloc_mode, mode = register_allocation () in
-      Option.iter (fun x -> Value.submode_exn mode x) expected_mode;
+      let alloc_mode, closed_over_mode =
+        register_closure_allocation expected_mode
+      in
       let newenv =
-        Env.add_closure_lock (smod.pmod_loc, Functor) mode.comonadic env
+        Env.add_closure_lock
+          (smod.pmod_loc, Functor)
+          closed_over_mode.comonadic env
       in
       let t_arg, ty_arg, newenv, funct_shape_param, funct_body =
         match arg_opt with
@@ -3034,12 +3052,12 @@ and type_module_aux ~alias ~hold_locks sttn funct_body anchor env
          (match ty_arg with
           | Unit -> ()
           | Named (_, _, param_mode) ->
-            Alloc.submode_exn (Alloc.close_over param_mode) ret_mode);
+              Alloc.submode_exn (Alloc.close_over param_mode) ret_mode);
          Alloc.submode_exn (Alloc.partial_apply alloc_mode) ret_mode
        | _ -> ());
       { mod_desc = Tmod_functor(t_arg, body);
         mod_type = Mty_functor(ty_arg, body.mod_type, ret_mode);
-        mod_mode = Value.disallow_right mode, None;
+        mod_mode = Value.disallow_right closed_over_mode, None;
         mod_env = env;
         mod_attributes = smod.pmod_attributes;
         mod_loc = smod.pmod_loc },
@@ -3436,7 +3454,7 @@ and type_structure ?(toplevel = None) funct_body anchor env ?expected_mode
   (* CR implicit-types: implement implicit variable jkinds in structures. *)
   let env = Env.clear_implicit_jkinds env in
   let names = Signature_names.create () in
-  let _, md_mode = register_allocation () in
+  let md_mode = register_module_allocation () in
   Option.iter (fun x -> Value.submode md_mode x |> ignore)
     expected_mode;
 
@@ -4077,7 +4095,7 @@ let type_package env m p fl =
       with Ctype.Unify _ ->
         raise (Error(modl.mod_loc, env, Scoping_pack (n,ty))))
     fl';
-  let _, mode = register_allocation () in
+  let mode = register_module_allocation () in
   let modl =
     wrap_constraint_package env true modl mty mode Tmodtype_implicit
   in

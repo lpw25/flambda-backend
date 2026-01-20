@@ -42,40 +42,6 @@ type always_dynamic =
   | Application
   | Try_with
 
-(** Hint for a constant bound. See [Mode.Report.print_const] for what each
-    non-trivial constructor means. *)
-type 'd const =
-  | Unknown : ('l * 'r) const  (** The constant bound is not explained. *)
-  | Lazy_allocated_on_heap : (disallowed * 'r) pos const
-  | Class_legacy_monadic : ('l * disallowed) neg const
-  | Class_legacy_comonadic : ('l * disallowed) pos const
-  | Tailcall_function : (disallowed * 'r) pos const
-  | Tailcall_argument : (disallowed * 'r) pos const
-  | Mutable_read : mutable_part -> (disallowed * 'r) neg const
-  | Mutable_write : mutable_part -> (disallowed * 'r) neg const
-  | Lazy_forced : (disallowed * 'r) neg const
-  | Function_return : (disallowed * 'r) pos const
-  | Stack_expression : ('l * disallowed) pos const
-  | Module_allocated_on_heap : (disallowed * 'r) pos const
-  | Always_dynamic : always_dynamic -> ('l * disallowed) neg const
-  | Branching : ('l * disallowed) neg const
-  | Is_used_in : pinpoint -> (disallowed * 'r) const
-      (** A variant of [Is_closed_by] where the closure mode is constant.
-          INVARIANT: The [pinpoint] cannot be [Unknown]. *)
-  constraint 'd = _ * _
-[@@ocaml.warning "-62"]
-
-type ('d0, 'd1) polarity =
-  | Monadic : ('l * 'r, 'r * 'l) polarity
-  | Comonadic : ('l * 'r, 'l * 'r) polarity
-  constraint 'd0 = _ * _ constraint 'd1 = _ * _
-[@@warning "-62"]
-
-type closure_details =
-  { closure : pinpoint;
-    closed : pinpoint
-  }
-
 (* CR-someday zqian: Put [Modality.Const.t] here, once the dependency circle is
    resolved. To fix that, we can move [Modality.Const] to in front of [Hint],
    while [Modality] stays in place. *)
@@ -96,6 +62,41 @@ type contains =
 type is_contained_by =
   { containing : containing;
     container : Location.t
+  }
+
+(** Hint for a constant bound. See [Mode.Report.print_const] for what each
+    non-trivial constructor means. *)
+type 'd const =
+  | Unknown : ('l * 'r) const  (** The constant bound is not explained. *)
+  | Lazy_allocated_on_heap : (disallowed * 'r) pos const
+  | Class_legacy_monadic : ('l * disallowed) neg const
+  | Class_legacy_comonadic : ('l * disallowed) pos const
+  | Tailcall_function : (disallowed * 'r) pos const
+  | Tailcall_argument : (disallowed * 'r) pos const
+  | Mutable_read : mutable_part -> (disallowed * 'r) neg const
+  | Mutable_write : mutable_part -> (disallowed * 'r) neg const
+  | Lazy_forced : (disallowed * 'r) neg const
+  | Function_return : (disallowed * 'r) pos const
+  | Stack_expression : ('l * disallowed) pos const
+  | Module_allocated_on_heap : (disallowed * 'r) pos const
+  | Always_dynamic : always_dynamic -> ('l * disallowed) neg const
+  | Branching : ('l * disallowed) neg const
+  | Contained_by : is_contained_by -> ('l * 'r) const
+  | Is_used_in : pinpoint -> (disallowed * 'r) const
+      (** A variant of [Is_closed_by] where the closure mode is constant.
+          INVARIANT: The [pinpoint] cannot be [Unknown]. *)
+  constraint 'd = _ * _
+[@@ocaml.warning "-62"]
+
+type ('d0, 'd1) polarity =
+  | Monadic : ('l * 'r, 'r * 'l) polarity
+  | Comonadic : ('l * 'r, 'l * 'r) polarity
+  constraint 'd0 = _ * _ constraint 'd1 = _ * _
+[@@warning "-62"]
+
+type closure_details =
+  { closure : pinpoint;
+    closed : pinpoint
   }
 
 type allocation_desc =
